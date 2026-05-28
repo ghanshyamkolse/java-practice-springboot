@@ -1,0 +1,60 @@
+spring:
+  main:
+    web-application-type: reactive
+  # 1. In-memory database setup for practice environment
+  datasource:
+    url: jdbc:h2:mem:energydb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  h2:
+    console:
+      enabled: true
+
+  # 2. JPA & Hibernate properties
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: true
+
+  # 3. Cache configuration (mapped to Caffeine CacheManager)
+  cache:
+    type: caffeine
+
+  # 4. RabbitMQ properties (Disabling listener auto-startup to support test runs without local broker)
+  rabbitmq:
+    host: localhost
+    port: 5672
+    listener:
+      simple:
+        auto-startup: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000ms
+          multiplier: 2.0
+
+  # 5. Apache Kafka properties (Disabling listener auto-startup to support test runs without local broker)
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: energy-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    listener:
+      auto-startup: false
+
+logging:
+  level:
+    org.springframework: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
