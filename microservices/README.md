@@ -40,7 +40,7 @@ The service strip shows the UI as online when the page is loaded and checks the 
 
 Nginx exposes only four exact `/ops/health/...` proxy paths for this display; it does not proxy arbitrary Actuator endpoints to the browser. These checks report service health, not end-to-end API success. Use the forms to test actual operations.
 
-In **Follow the request**, choose **Register meter**, **Record reading**, or **View history** to see the relevant service path. Submitting a form or changing the selected meter updates the diagram to that operation. Compare the diagram with the browser's Network panel and container logs to see where each request travels.
+In **Follow the request**, choose **Register meter**, **Record reading**, or **View history** to preview the relevant service path. When you submit a form, change the selected meter, or refresh history, the path animates while that API request is in flight and then shows its HTTP result and elapsed time. The path is an illustration of the expected route, not distributed tracing; use the browser's Network panel and container logs for individual service activity.
 
 ## API examples
 
@@ -63,6 +63,14 @@ From the repository root:
 ```powershell
 docker --context default compose -f microservices\compose.yml up --build
 ```
+
+The command above streams logs from all containers. To follow only the Spring Boot applications in a separate terminal (without the UI's Nginx logs), run:
+
+```powershell
+docker --context default compose -f microservices\compose.yml logs -f discovery-server api-gateway meter-service reading-service
+```
+
+Meter registration/lookups and reading operations are logged by the business services at `INFO`; expected conflicts and missing-meter cases are logged at `WARN`. Request payload values are not logged.
 
 ```powershell
 .\mvnw.cmd -f microservices\pom.xml clean verify

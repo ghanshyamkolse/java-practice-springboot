@@ -5,7 +5,10 @@ const readingRows = document.querySelector("#reading-rows");
 const meterMessage = document.querySelector("#meter-message");
 const readingMessage = document.querySelector("#reading-message");
 const recordsMessage = document.querySelector("#records-message");
+const traceStatus = document.querySelector("#trace-status");
 const healthServices = ["gateway", "discovery", "meter", "reading"];
+let traceSequence = 0;
+let traceTimer;
 const flows = {
     register: {
         steps: [
@@ -31,35 +34,56 @@ const flows = {
     }
 };
 
-async function request(path, options) {
-    const response = await fetch(path, {
-        ...options,
-        headers: {
-            Accept: "application/json",
-            ...(options?.body ? { "Content-Type": "application/json" } : {}),
-            ...options?.headers
+async function request(path, options, flowName = null) {
+    const method = options?.method || "GET";
+    const traceId = flowName ? startRequestTrace(flowName, method, path) : null;
+    const startedAt = performance.now();
+
+    try {
+        const response = await fetch(path, {
+            ...options,
+            headers: {
+                Accept: "application/json",
+                ...(options?.body ? { "Content-Type": "application/json" } : {}),
+                ...options?.headers
+            }
+        });
+
+        const responseText = await response.text();
+        let body;
+        if (responseText) {
+            try {
+                body = JSON.parse(responseText);
+            } catch {
+                body = null;
+            }
         }
-    });
 
-    const responseText = await response.text();
-    let body;
-    if (responseText) {
-        try {
-            body = JSON.parse(responseText);
-        } catch {
-            body = null;
+        if (!response.ok) {
+            const detail = body?.error || body?.message || responseText || `Request failed (${response.status})`;
+            const error = new Error(detail);
+            error.status = response.status;
+            throw error;
         }
-    }
 
-    if (!response.ok) {
-        const detail = body?.error || body?.message || responseText || `Request failed (${response.status})`;
-        throw new Error(detail);
-    }
+        if (response.status === 204 || !responseText) {
+            if (traceId !== null) finishRequestTrace(traceId, method, path, response.status, startedAt, true);
+            return null;
+        }
+        if (body === null) {
+            const error = new Error("The service returned an invalid JSON response.");
+            error.status = response.status;
+            throw error;
+        }
 
-    if (response.status === 204) return null;
-    if (!responseText) return null;
-    if (body === null) throw new Error("The service returned an invalid JSON response.");
-    return body;
+        if (traceId !== null) finishRequestTrace(traceId, method, path, response.status, startedAt, true);
+        return body;
+    } catch (error) {
+        if (traceId !== null) {
+            finishRequestTrace(traceId, method, path, error.status, startedAt, false);
+        }
+        throw error;
+    }
 }
 
 function showMessage(element, text, kind = "") {
@@ -72,11 +96,15 @@ function selectFlow(name) {
     const flow = flows[name];
     if (!flow) return;
 
+    traceSequence += 1;
+    clearInterval(traceTimer);
+    traceTimer = null;
     const traceLine = document.querySelector("#trace-line");
     traceLine.replaceChildren();
     flow.steps.forEach(([label, className], index) => {
         const step = document.createElement("span");
         step.className = className;
+        step.dataset.traceStep = String(index);
         step.textContent = label;
         traceLine.append(step);
 
@@ -89,9 +117,56 @@ function selectFlow(name) {
     });
 
     document.querySelector("#trace-description").textContent = flow.description;
+    traceLine.dataset.state = "idle";
+    delete traceLine.dataset.result;
+    traceStatus.textContent = "Select an operation or submit a request to follow its path.";
     document.querySelectorAll("[data-flow]").forEach((button) => {
         button.setAttribute("aria-pressed", String(button.dataset.flow === name));
     });
+}
+
+function startRequestTrace(flowName, method, path) {
+    selectFlow(flowName);
+    const traceId = traceSequence;
+    const traceLine = document.querySelector("#trace-line");
+    const steps = [...traceLine.querySelectorAll("[data-trace-step]")];
+    let activeStep = 0;
+
+    traceLine.dataset.state = "pending";
+    traceStatus.textContent = `IN FLIGHT · ${method} ${path}`;
+    steps[activeStep]?.classList.add("is-active");
+    traceTimer = setInterval(() => {
+        if (traceId !== traceSequence) return;
+        steps[activeStep]?.classList.remove("is-active");
+        steps[activeStep]?.classList.add("is-complete");
+        activeStep += 1;
+        if (activeStep < steps.length) {
+            steps[activeStep].classList.add("is-active");
+        } else {
+            clearInterval(traceTimer);
+            traceTimer = null;
+        }
+    }, 350);
+
+    return traceId;
+}
+
+function finishRequestTrace(traceId, method, path, status, startedAt, succeeded) {
+    if (traceId !== traceSequence) return;
+
+    clearInterval(traceTimer);
+    traceTimer = null;
+    const traceLine = document.querySelector("#trace-line");
+    traceLine.querySelectorAll("[data-trace-step]").forEach((step) => {
+        step.classList.remove("is-active");
+        if (succeeded) step.classList.add("is-complete");
+    });
+    traceLine.dataset.state = "complete";
+    traceLine.dataset.result = succeeded ? "success" : "error";
+
+    const duration = Math.round(performance.now() - startedAt);
+    const outcome = status ? `HTTP ${status}` : "NO RESPONSE";
+    traceStatus.textContent = `${succeeded ? "COMPLETE" : "FAILED"} · ${outcome} · ${method} ${path} · ${duration} ms`;
 }
 
 async function refreshServiceHealth() {
@@ -194,13 +269,13 @@ async function loadMeters() {
     return meters;
 }
 
-async function loadReadings() {
+async function loadReadings(flowName = null) {
     const meterId = meterSelect.value;
     if (!meterId) {
         renderReadings([]);
         return;
     }
-    const readings = await request(`/api/readings/meter/${encodeURIComponent(meterId)}`);
+    const readings = await request(`/api/readings/meter/${encodeURIComponent(meterId)}`, undefined, flowName);
     renderReadings(readings);
     showMessage(recordsMessage, `${readings.length} reading${readings.length === 1 ? "" : "s"} for ${meterId}.`);
 }
@@ -219,7 +294,7 @@ meterForm.addEventListener("submit", async (event) => {
                 meterId: meterForm.elements.meterId.value.trim(),
                 status: meterForm.elements.status.value
             })
-        });
+        }, "register");
         await loadMeters();
         meterSelect.value = meter.meterId;
         showMessage(meterMessage, `${meter.meterId} registered successfully.`, "success");
@@ -249,7 +324,7 @@ readingForm.addEventListener("submit", async (event) => {
                 meterId: meterSelect.value,
                 value: Number(readingForm.elements.value.value)
             })
-        });
+        }, "record");
         showMessage(readingMessage, `Reading ${reading.id} saved for ${reading.meterId}.`, "success");
         await loadReadings();
     } catch (error) {
@@ -260,8 +335,7 @@ readingForm.addEventListener("submit", async (event) => {
 });
 
 meterSelect.addEventListener("change", () => {
-    selectFlow("history");
-    loadReadings().catch((error) => showMessage(recordsMessage, error.message, "error"));
+    loadReadings("history").catch((error) => showMessage(recordsMessage, error.message, "error"));
 });
 
 document.querySelector("#refresh-readings").addEventListener("click", async () => {
@@ -272,7 +346,7 @@ document.querySelector("#refresh-readings").addEventListener("click", async () =
             showMessage(recordsMessage, "Register a meter to start recording readings.");
             return;
         }
-        await loadReadings();
+        await loadReadings("history");
     } catch (error) {
         showMessage(recordsMessage, error.message, "error");
     }

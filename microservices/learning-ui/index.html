@@ -120,7 +120,7 @@
         </div>
         <div class="request-trace">
             <div class="trace-heading">
-                <div class="trace-title"><span class="trace-live"></span> FOLLOW THE REQUEST <span class="trace-caption">SELECT AN OPERATION TO SEE ITS PATH</span></div>
+                <div class="trace-title"><span class="trace-live"></span> FOLLOW THE REQUEST <span class="trace-caption">ILLUSTRATIVE PATH · LIVE RESPONSE STATUS</span></div>
                 <div class="trace-tabs" role="group" aria-label="Choose a request path">
                     <button type="button" data-flow="register" aria-pressed="false">Register meter</button>
                     <button type="button" data-flow="record" aria-pressed="true">Record reading</button>
@@ -128,6 +128,7 @@
                 </div>
             </div>
             <div class="trace-line" id="trace-line" aria-live="polite"></div>
+            <p class="trace-status" id="trace-status" role="status" aria-live="polite">Select an operation or submit a request to follow its path.</p>
             <p id="trace-description">The reading service checks the meter over HTTP, then writes to its own database. If the meter service is unavailable, the reading request can fail.</p>
         </div>
     </section>
