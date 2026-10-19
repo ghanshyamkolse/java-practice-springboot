@@ -1,36 +1,25 @@
-# Day 1 Q&A: Microservices, RESTful & SOAP Web Services
+# Day 1 Q&A: Microservices and HTTP APIs
 
-### Q1: How do you handle distributed transactions in a Microservice architecture?
-> **Answer:** 
-> We implement the **Saga Pattern** rather than traditional 2-Phase Commit (2PC) since 2PC blocks database resources and does not scale well in high-volume microservices. 
-> In a Saga, we split the transaction into multiple steps:
-> 1. Each microservice executes a local transaction and publishes an event or message.
-> 2. The next microservice listens to that event and executes its local transaction.
-> 3. If a step fails, the Saga executes **compensating transactions** in reverse order to roll back the changes programmatically (e.g., if inventory reservation fails, we refund the payment).
+### Q1: What makes an application a microservice?
 
----
+**Answer:** It is independently deployable, owns a focused business capability and its data, and communicates through a defined API or events. Splitting one application into packages alone does not create microservices. This independence improves deployment and scaling options but adds networking and operations complexity.
 
-### Q2: If a legacy service communicates via SOAP XML, how do you consume it in a Spring Boot app?
-> **Answer:**
-> I consume it using **Spring Web Services (Spring WS)**. 
-> 1. Add `jaxb2-maven-plugin` or `cxf-codegen-plugin` in `pom.xml` to generate Java representation classes from the remote `.wsdl` file.
-> 2. Configure a `Jaxb2Marshaller` bean pointing to the package containing the generated classes.
-> 3. Define a `WebServiceTemplate` bean and inject the marshaller/unmarshaller.
-> 4. Inject `WebServiceTemplate` in the service class and call `.marshalSendAndReceive(requestPayload)` to communicate.
+### Q2: Walk me through a request to create a reading in the practice project.
 
----
+**Answer:** The client sends `POST /api/readings` to the gateway on port `8080`. The gateway resolves `reading-service` using Eureka and routes the request. The reading service validates the payload, calls `meter-service` to check that the meter exists, then saves the reading in its own database. It does not query the meter service's database.
 
-### Q3: What is the difference between a Filter and an Interceptor in Spring Cloud Gateway?
-> **Answer:**
-> * **Gateway Filter:** Applies to specific routes or all routes globally (GlobalFilter). It intercepts requests and responses entering and exiting the gateway. You write code using WebFlux's non-blocking `ServerWebExchange`.
-> * **Spring MVC Interceptor (`HandlerInterceptor`):** Operates on the web framework level for servlet-based applications, dealing with HttpServletRequest and HttpServletResponse.
-> * Since Spring Cloud Gateway is built on Spring WebFlux (reactive and non-blocking), it uses `GatewayFilter` instead of standard servlet filters or interceptors.
+### Q3: Why does each service own its own database?
 
----
+**Answer:** Ownership lets each service change its schema and persistence independently and protects its business rules. Other services use its API or events instead of shared tables. This avoids tight schema coupling, but cross-service reporting and transactions require deliberate designs.
 
-### Q4: How does a Circuit Breaker decide when to open or close?
-> **Answer:**
-> It uses a sliding window of recent calls (either count-based or time-based).
-> 1. If the failure rate (e.g., timeouts, exceptions) exceeds the configured threshold (e.g., 50% failures out of the last 10 calls), the circuit transitions to **OPEN**.
-> 2. In the **OPEN** state, calls fail fast immediately, executing a fallback method if provided, without hitting the target service.
-> 3. After a configured wait duration, the circuit enters **HALF-OPEN** and permits a limited number of requests. If these succeed, it transitions back to **CLOSED**; if they fail, it goes back to **OPEN**.
+### Q4: What are the responsibilities of an API gateway and service discovery?
+
+**Answer:** The gateway is a client-facing entry point that routes requests and can enforce explicitly configured cross-cutting policies. Eureka records service instances under logical names; clients use those names and a load balancer instead of hard-coded instance addresses. Neither replaces health checks, timeouts, or security configuration.
+
+### Q5: What is the main weakness of the reading service's current HTTP call?
+
+**Answer:** Recording a reading depends synchronously on the meter service. A network delay or meter-service outage can delay or fail the reading request. A short timeout limits waiting; a circuit breaker can reduce repeated calls to a failing dependency. An event-driven design is another option, but introduces eventual consistency and duplicate-message handling.
+
+### Q6: How do REST and SOAP differ?
+
+**Answer:** REST is an architectural style commonly built on HTTP resources and JSON. SOAP is a protocol based on XML messages and formal service contracts such as WSDL. Both can be secure when configured correctly; neither inherently gives a distributed application an ACID transaction across services.

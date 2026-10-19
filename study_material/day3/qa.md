@@ -1,33 +1,29 @@
-# Day 3 Q&A: Databases, JDBC, & Data Access
+# Day 3 Q&A: Databases and Data Ownership
 
-### Q1: How do you identify and resolve slow-running queries in a SQL Server + Spring Boot application?
-> **Answer:**
-> 1. **Identify:** Enable SQL logging in development configurations (`logging.level.org.hibernate.SQL=DEBUG` and parameter binding logs). In production, use database profiling tools like **SQL Server Profiler** or view execution statistics dynamically.
-> 2. **Analyze:** Run the slow SQL query directly in SQL Server Management Studio and review the **Execution Plan**. Inspect if it is performing table/index scans instead of index seeks.
-> 3. **Resolve:** 
->    * Overwrite poorly generated Hibernate SQL with JPQL queries that include `JOIN FETCH` to resolve N+1 query problems.
->    * Introduce non-clustered covering indexes for high-frequency queries.
->    * Tune HikariCP connection pool configurations (e.g. `maximumPoolSize`) to avoid connection starvation issues.
+### Q1: Why should each microservice own its database?
 
----
+**Answer:** The service controls its schema, validation, and write rules, so other services cannot silently couple themselves to its tables. Other services use an API or event contract. This allows independent changes but makes cross-service reporting and workflows more explicit.
 
-### Q2: When would you store data in MongoDB instead of SQL Server in a Digital Energy solution?
-> **Answer:**
-> * Choose **MongoDB** for high-frequency smart meter readings, log archives, or IoT telemetry streams. These streams generate high-volume, semi-structured records where schema requirements change often and write speeds are critical.
-> * Choose **SQL Server** for core business transactions that require absolute relational consistency, foreign keys, and ACID compliance (e.g., customer profiles, account billing data, tariff rates).
+### Q2: Does `@Transactional` make a call to another microservice atomic?
 
----
+**Answer:** No. It normally covers one local transaction manager and database. An HTTP request or Kafka publish cannot be rolled back as part of that local database transaction. For a multi-service process, use local transactions and a suitable saga/outbox design, with compensation where required.
 
-### Q3: What is the difference between `@EntityGraph` and `JOIN FETCH`?
-> **Answer:**
-> * **`JOIN FETCH`** is explicitly defined inside a JPQL query (e.g. `SELECT m FROM SmartMeter m JOIN FETCH m.readings`). It forces an SQL `INNER` or `LEFT JOIN` to fetch the child records.
-> * **`@EntityGraph`** is an annotation config that can be applied to repository methods (e.g. `@EntityGraph(attributePaths = {"readings"})`). It instructs Spring Data to alter the fetch strategy dynamically. If you use a basic repository method like `findById()`, Spring builds the join fetch logic dynamically behind the scenes.
+### Q3: Why should an HTTP call not be made while holding a database transaction open?
 
----
+**Answer:** Network calls have unpredictable latency and can fail. Holding the transaction open consumes a connection and may retain locks while waiting, reducing throughput and making recovery harder. Keep the network step outside a short local transaction where possible.
 
-### Q4: How do you prevent thread starvation in HikariCP?
-> **Answer:**
-> Starvation occurs when application threads wait longer than `connectionTimeout` to get a JDBC connection.
-> 1. Keep database transactions as short as possible. Avoid executing external network/API requests inside active `@Transactional` methods.
-> 2. Right-size the pool: Configure `maximumPoolSize` to match system load and database server capacities.
-> 3. Set a reasonable `connectionTimeout` (e.g. 30000ms) and configure `leakDetectionThreshold` (e.g., 2000ms) to identify threads that hold connections longer than expected.
+### Q4: How would you investigate a slow repository query?
+
+**Answer:** Reproduce it with representative data, inspect generated SQL and database execution plans, and measure latency and rows read. Check filter/sort indexes and look for N+1 queries. Add or change an index only when measurements show it helps; indexes also add write and storage costs.
+
+### Q5: What is the N+1 query problem?
+
+**Answer:** The application retrieves a list in one query and then issues one additional query per row to load related data. Depending on access patterns, a fetch join, entity graph, batch loading, or a purpose-built projection can reduce round trips. Verify the SQL and account for pagination and collection semantics.
+
+### Q6: Why does the reading service store a meter ID without a foreign key?
+
+**Answer:** The meter record belongs to a different service and database. The reading service validates the ID through the meter service API, then stores the identifier as part of its own record. This avoids a cross-service database dependency; it also means the two services do not share a distributed transaction.
+
+### Q7: Does increasing the database connection pool always improve throughput?
+
+**Answer:** No. Too many concurrent database connections can saturate the database and increase contention. Measure connection wait time, query time, transaction duration, and database capacity before changing pool size.

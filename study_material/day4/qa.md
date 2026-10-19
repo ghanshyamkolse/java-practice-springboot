@@ -1,34 +1,25 @@
-# Day 4 Q&A: Advanced Java APIs & Spring Framework Internals
+# Day 4 Q&A: Java and Spring Boot
 
-### Q1: How does Spring implement `@Transactional` under the hood?
-> **Answer:**
-> Spring uses **AOP dynamic proxies** (JDK Dynamic Proxies or CGLIB).
-> 1. When a bean containing `@Transactional` is injected, Spring instantiates a proxy wrapper.
-> 2. When a thread calls a transactional method, the proxy intercepts the execution, accesses the `PlatformTransactionManager`, and opens a database connection/transaction.
-> 3. The proxy calls the target bean's method.
-> 4. If successful, the proxy commits the transaction. If a `RuntimeException` (or configured exception) is thrown, it triggers a database rollback.
+### Q1: What happens when a request reaches `POST /api/readings`?
 
----
+**Answer:** Spring maps the URL to the controller, converts JSON to a request record, runs validation, calls the meter-service client, saves a reading through the local repository, and serializes a response DTO. The meter lookup is a network call; the reading insert is a local database operation.
 
-### Q2: What is the "self-invocation" transaction issue and how do you resolve it?
-> **Answer:**
-> * **The Issue:** Since `@Transactional` is managed by a proxy wrapper, calling a transactional method from another method *inside the same class* bypasses the proxy. The call is invoked directly on `this`, meaning no transaction is created.
-> * **Resolutions:**
->   1. **Refactoring (Recommended):** Move the transactional method to a separate Spring component (e.g. `BillingHelper`).
->   2. **Self-Injection:** Inject the bean into itself using `@Autowired` combined with `@Lazy` to force execution through the proxy.
->   3. **Programmatic Transactions:** Use `TransactionTemplate` manually to wrap the execution.
+### Q2: Why use constructor injection?
 
----
+**Answer:** Required dependencies are explicit, immutable after construction, and straightforward to supply in tests. Spring creates the controller and supplies the repository and client beans.
 
-### Q3: What is the difference between BeanFactory and ApplicationContext?
-> **Answer:**
-> * **`BeanFactory`:** The root interface of Spring's IoC container. It provides basic dependency injection support, lazy-loads beans by default (instantiates beans only when requested), and has lightweight memory utilization.
-> * **`ApplicationContext`:** Extends `BeanFactory`. It provides advanced features including eager bean pre-instantiation at startup, internationalization (i18n) support, event publishing mechanisms, and automatic registration of `BeanPostProcessor` beans.
+### Q3: Why use DTOs instead of returning a JPA entity?
 
----
+**Answer:** A DTO defines the API contract independently of database mappings. It avoids unintentionally exposing internal columns, lazy-loading relationships, or persistence details, and allows the API and schema to evolve separately.
 
-### Q4: What are Java 17 Records and when should you use them?
-> **Answer:**
-> Records are special classes designed to act as immutable data carriers. They reduce boilerplate significantly.
-> * Use them for **DTOs (Data Transfer Objects)**, request/response models, database mappings (where entities don't require mutation), or keys inside hash maps.
-> * Avoid them for JPA entities because Hibernate depends on lazy loading, proxies, and mutable structures which clash with a Record's final fields and lack of default constructors.
+### Q4: What do Java records provide, and when would you use them?
+
+**Answer:** Records provide concise data-carrier classes with final components, an accessor for each component, and generated equality and representation methods. They fit simple request or response DTOs. They are not a direct replacement for mutable JPA entities or richer domain objects.
+
+### Q5: What is the Spring self-invocation issue with `@Transactional`?
+
+**Answer:** Spring often applies transactions through a proxy. A call from one method to another on the same object can bypass that proxy, so the inner method's transactional advice may not run. Place transaction boundaries on externally invoked service methods or use an architecture that calls through the managed proxy.
+
+### Q6: How does container configuration differ from local configuration?
+
+**Answer:** Local defaults are declared in YAML, while Compose injects environment-specific values such as port and Eureka URL. Container DNS names locate other containers; `localhost` means the current container. Secrets should be provided securely rather than committed in YAML.

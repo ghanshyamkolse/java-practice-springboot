@@ -1,26 +1,33 @@
-# Day 7 Q&A: Scenario Practice & Final Mock Prep
+# Day 7 Q&A: System Design and Interview Practice
 
-### Q1: Detail how you would design an ingestion system for 10 million smart meters reporting readings every 15 minutes.
-> **Answer:**
-> 1. **Ingress & Gateway:** I would expose REST/MQTT endpoints protected by **Spring Cloud Gateway**. The gateway acts as a security filter and uses a **Redis RequestRateLimiter** to prevent DDoS or malfunctioning devices from exhausting backend threads.
-> 2. **Ingestion Queue:** Gateway forwards events to **Apache Kafka**. I would set up a `telemetry-readings` topic with multiple partitions (e.g., 32 or 64). Events will be partitioned by `meterId` to guarantee that readings from a specific meter are processed sequentially.
-> 3. **Processor Microservices:** A Spring Boot consumer microservice will consume Kafka records in batches.
-> 4. **Caching & DB Shielding:** For each reading, the service needs to validate configuration rules (e.g., threshold limits). Rather than querying a relational database on every read, active configurations are cached in a **Redis cluster**.
-> 5. **Hybrid Storage:** Raw readings write to **MongoDB** due to its scale-out write capabilities. Aggregated hourly summaries and customer billing profiles write to **SQL Server** to guarantee strict transactional compliance (ACID).
+### Q1: How would you design ingestion for 10 million devices reporting every 15 minutes?
 
----
+**Answer:** First, I would clarify burst patterns, payload size, latency and availability targets, retention, ordering, duplicate behavior, and billing requirements. The evenly spread average is about 11,100 readings per second, but I would size for measured or agreed peak traffic. I would validate authenticated device requests at the edge and use a durable, partitioned stream when buffering and independent consumers are required. I would partition by meter ID only if per-meter ordering is needed and verify capacity with load tests.
 
-### Q2: How do you handle microservice authentication in a distributed environment?
-> **Answer:**
-> We use **OAuth2 combined with JSON Web Tokens (JWT)**.
-> 1. Clients request authentication from an Identity Provider (like Keycloak or Okta) and receive a signed JWT access token.
-> 3. The client attaches this token to the `Authorization: Bearer <token>` header of incoming API Gateway requests.
-> 4. The API Gateway (or downsteam microservices using `spring-boot-starter-oauth2-resource-server`) verifies the token signature locally using public keys exposed by the Identity Provider. This allows authentication verification without making remote database calls.
-> 5. Service-to-service communication is secured using **mTLS (Mutual TLS)** or client credentials grant tokens.
+### Q2: How do you ensure a reading is not billed twice?
 
----
+**Answer:** Give the reading a stable event ID and make billing idempotent, enforcing deduplication in its own database with a unique constraint or equivalent. Design retries and replay as expected behavior. Keep enough audit information to explain which source readings produced each billing result.
 
-### Q3: What is the difference between rolling deployment and blue-green deployment?
-> **Answer:**
-> * **Rolling Deployment:** The deployment system replaces old instances of the application with new ones one-by-one. No additional infrastructure is needed, but at any point, two different versions of the code are active in production, requiring backward-compatible API changes.
-> * **Blue-Green Deployment:** Two identical environments exist (Blue is current live; Green is new). We deploy the new code fully to the inactive Green environment. Once verified, the load balancer router shifts 100% of traffic to Green. It allows instant rollback, but doubles infrastructure cost.
+### Q3: How do you handle a reading that arrives after billing has already run?
+
+**Answer:** Define an explicit late-data policy with the business: reject it, include it in a later adjustment, or recalculate a billing period. Model corrections as auditable operations or events. Do not assume that transport-level ordering or exactly-once broker features alone solve business consistency.
+
+### Q4: How would you secure the services?
+
+**Answer:** Authenticate clients with an identity provider and verify access tokens; authorize each operation based on identity and permissions. Use HTTPS externally and suitable service identities or mTLS/tokens internally. Keep credentials out of source and logs, and do not rely on network location or the gateway as the only authorization boundary.
+
+### Q5: How would you handle a downstream outage?
+
+**Answer:** Bound calls with a timeout. Use limited retries with backoff only for transient failures and idempotent operations. A circuit breaker can fail fast after repeated failures, and a queue can buffer work if the business flow can be asynchronous. Return an honest error or pending status rather than success-shaped fallback data.
+
+### Q6: How do you decide whether to split a service?
+
+**Answer:** Look for a clear business capability, data ownership, change boundary, scaling need, or team ownership reason. Compare the benefit of independent deployment with the cost of network calls, observability, operations, and distributed consistency. If independence is not needed yet, a well-structured modular monolith may be simpler.
+
+### Q7: How would you validate a proposed high-volume architecture?
+
+**Answer:** Define a representative workload and service-level goals, then load-test ingestion and downstream consumers. Measure latency percentiles, error rates, consumer lag, resource saturation, database throughput, and recovery after failure. Increase traffic in steps and document observed bottlenecks instead of assuming a technology's advertised capacity applies.
+
+### Q8: Which parts of this interview project are production-ready?
+
+**Answer:** The project is a learning baseline. It demonstrates separate Spring Boot services, Eureka discovery, gateway routing, local H2 databases, and a synchronous HTTP dependency. It still needs durable database storage, production security, explicit timeouts and resilience policies, observability, automated integration testing, and operational deployment design before it could be considered production-ready.

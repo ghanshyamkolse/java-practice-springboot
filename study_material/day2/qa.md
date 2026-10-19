@@ -1,38 +1,25 @@
-# Day 2 Q&A: Distributed Messaging & Asynchronous Architecture
+# Day 2 Q&A: Messaging and Event-Driven Design
 
-### Q1: How does messaging help in high-volume applications?
-> **Answer:**
-> Messaging decouples services and enables **asynchronous processing** (load leveling). 
-> Instead of a user request executing synchronous, blocking downstream calls, the request is published to a broker and a success code is returned immediately. 
-> A pool of downstream worker services consumes the queue at a sustainable rate, protecting systems during sudden traffic spikes.
+### Q1: When would you use a message broker instead of a synchronous REST call?
 
----
+**Answer:** Use messaging when the producer should not wait for consumers, traffic needs buffering, or several independent consumers need the same event. REST is often simpler when the caller needs an immediate answer, as in the current reading service's meter check. Messaging improves decoupling but introduces eventual consistency and additional failure modes.
 
-### Q2: What is a "poison pill" message and how do you handle it in Spring Boot?
-> **Answer:**
-> A poison pill is a message that cannot be processed due to corruption, invalid schemas, or business errors. 
-> In Spring AMQP (RabbitMQ) or Spring Kafka:
-> 1. If unhandled, it will fail and retry indefinitely, blocking the queue or partition.
-> 2. We handle this by configuring a **Dead Letter Queue (DLQ)**. 
-> 3. After a maximum number of retries (e.g., 3), the message is routed to the DLQ exchange/topic, freeing up the consumer for the next message.
+### Q2: Kafka or RabbitMQ—which would you choose?
 
----
+**Answer:** Kafka is a strong fit for retained event streams, replay, and multiple consumer groups reading at their own pace. RabbitMQ is a strong fit for queue-based work distribution and flexible routing. I would choose based on retention, replay, routing, ordering and operational needs, not on a claim that one is always faster or better.
 
-### Q3: When should you choose Kafka over RabbitMQ?
-> **Answer:**
-> * Choose **Kafka** if you need:
->   * Event streaming, real-time log analysis, or event sourcing.
->   * Message replayability (ability to rewind offsets and re-process).
->   * High horizontal scalability (millions of events per second) using partitions.
-> * Choose **RabbitMQ** if you need:
->   * Complex routing logic (e.g., routing based on wildcard keys or headers).
->   * Strict message-level delivery tracking and transition state handled by the broker.
->   * Easy integration of legacy protocols.
+### Q3: What is idempotency and why does a consumer need it?
 
----
+**Answer:** Idempotency means repeated processing has the same business effect as processing once. A broker may redeliver after a timeout or a crash that occurred after the database commit but before acknowledgement. I would include a stable event ID and persist processed IDs or enforce a unique business constraint.
 
-### Q4: How do you achieve exactly-once processing in Kafka?
-> **Answer:**
-> Exactly-once processing requires two layers:
-> 1. **Kafka Transactions:** Producers write messages across multiple partitions transactionally using `KafkaTemplate.executeInTransaction()`.
-> 2. **Consumer Idempotency:** The consumer must keep track of processed message IDs (e.g., using a database de-duplication table with a unique constraint) to ensure duplicate deliveries are discarded.
+### Q4: What is a dead-letter queue?
+
+**Answer:** It holds messages that could not be processed under the configured retry policy. It prevents invalid messages from being retried indefinitely and gives operators a way to inspect, alert on, and deliberately repair or replay them. A dead-letter queue should not become an ignored dumping ground.
+
+### Q5: What problem does the transactional outbox solve?
+
+**Answer:** It prevents a crash between committing business data and publishing its event from silently losing one side of the operation. The service writes the business change and outbox row in one local database transaction; a publisher sends the row later. Delivery may repeat, so consumers remain idempotent.
+
+### Q6: Does asynchronous messaging provide an immediate consistent answer to the caller?
+
+**Answer:** No. The producer can confirm that an event was accepted or stored, but consumers may process it later or fail. The API and user experience should represent a pending operation and provide an appropriate way to observe its eventual result.
